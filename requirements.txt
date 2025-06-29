@@ -1,31 +1,33 @@
 # MF4Bridge - Python Dependencies
-# Core requirements for MDF4 file conversion
+# Clean, well-defined requirements with version constraints
 
-# MDF4 file processing
-asammdf>=7.0.0
+# Core MDF4 processing
+asammdf>=7.0.0,<8.0.0
 
-# Modern GUI components
+# NumPy compatibility (avoid 2.x issues)
+numpy>=1.20.0,<2.0.0
+
+# Data manipulation (asammdf dependency)
+pandas>=1.5.0,<3.0.0
+
+# Enhanced GUI (optional)
 customtkinter>=5.0.0
 
-# Standard library modules (included with Python)
-# tkinter - GUI framework (built-in)
-# threading - Multi-threading support (built-in)
-# pathlib - Path operations (built-in)
-# csv - CSV file operations (built-in)
-# os - Operating system interface (built-in)
-
-# Optional dependencies for enhanced functionality
-# Uncomment if needed:
-
-# For better file compression support
-# lz4>=4.0.0
-
-# For additional data formats
-# pandas>=1.5.0
-
-# For executable creation
-# pyinstaller>=5.0.0
-
-# For testing (development only)
+# Development dependencies (optional)
+# Uncomment for development work:
 # pytest>=7.0.0
 # pytest-cov>=4.0.0
+# black>=22.0.0
+# flake8>=5.0.0
+
+# Build dependencies (optional)
+# Uncomment for building executables:
+# pyinstaller>=5.0.0
+
+# Additional optional dependencies:
+# lz4>=4.0.0              # Better compression support
+# psutil>=5.8.0            # System information
+# matplotlib>=3.5.0       # Plotting capabilities
+
+# Note: tkinter, threading, pathlib, csv, os are built into Python
+# Note: All version constraints are designed to avoid compatibility issues
