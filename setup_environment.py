@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-MF4Bridge Environment Setup
-Unified script for dependency management and environment configuration
+MF4Bridge Environment Setup: Script for dependency management and environment configuration
+Author: Jayadev Meka Name
+Date: 2025-06-24
+Version: 1.1
+License: MIT
 """
 
 import subprocess

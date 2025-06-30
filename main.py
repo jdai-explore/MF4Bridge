@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-MF4Bridge - Enhanced MDF4 File Converter
-Main application entry point with responsive design and robust error handling
+MF4Bridge - Main application entry point with responsive design and error handling
+Author: Jayadev Meka Name
+Date: 2025-06-30
+Version: 1.7
+License: MIT
 """
 
 import sys

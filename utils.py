@@ -1,6 +1,9 @@
 """
-MF4Bridge Enhanced Utility Functions
-Optimized helper functions with improved performance and comprehensive error handling
+MF4Bridge Utility Functions: Optimized helper functions with performance improvements and error handling
+Author: Jayadev Meka Name
+Date: 2025-06-30
+Version: 1.2
+License: MIT
 """
 
 import os

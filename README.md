@@ -293,4 +293,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**MF4Bridge** - Professional MDF4 conversion made simple and reliable.
+**Footnote** - Project Documentation and code comments are generated with LLM and is reviewed by author.

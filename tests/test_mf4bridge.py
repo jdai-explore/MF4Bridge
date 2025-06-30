@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-MF4Bridge Test Suite
-Comprehensive tests for all core functionality
+MF4Bridge Test Suite: Tests for all core functionality
+Author: Jayadev Meka Name
+Date: 2025-06-28
+Version: 1.2
+License: MIT
 """
 
 import unittest

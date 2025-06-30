@@ -1,5 +1,4 @@
 # MF4Bridge - Python Dependencies
-# Clean, well-defined requirements with version constraints
 
 # Core MDF4 processing
 asammdf>=7.0.0,<8.0.0

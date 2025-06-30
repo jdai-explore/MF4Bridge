@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-Smart Fix for MF4Bridge Environment
-Automatically detects the correct Python executable path
+Smart Fix for MF4Bridge Environment: Automatically detects the correct Python executable path
+Author: Jayadev Meka Name
+Date: 2025-06-30
+Version: 1.3
+License: MIT
 """
 
 import subprocess

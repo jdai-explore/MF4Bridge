@@ -1,6 +1,9 @@
 """
-MF4Bridge Enhanced GUI Components
-Responsive GUI implementation with improved screen size handling and better UX
+MF4Bridge GUI Components: GUI implementation
+Author: Jayadev Meka Name
+Date: 2025-06-29
+Version: 1.4
+License: MIT
 """
 
 import tkinter as tk

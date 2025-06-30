@@ -1,6 +1,9 @@
 """
-MF4Bridge Converter Engine
-Core conversion functionality for MDF4 files with improved error handling
+MF4Bridge Converter Engine: Core conversion functionality for MDF4 files
+Author: Jayadev Meka Name
+Date: 2025-06-25
+Version: 1.6
+License: MIT
 """
 
 import os
