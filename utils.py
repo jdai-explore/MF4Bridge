@@ -1,46 +1,6 @@
-"""
-MF4Bridge Enhanced Utility Functions
-Comprehensive helper functions with improved error handling and logging
-"""
-
-import os
-import sys
-import tempfile
-import shutil
-import glob
-import platform
-from pathlib import Path
-from typing import List, Union, Dict, Any, Optional
-import logging
-
-logger = logging.getLogger(__name__)
-
-class ValidationError(Exception):
-    """Custom exception for validation errors"""
-    pass
-
-def validate_file_extension(file_path: str, valid_extensions: List[str]) -> bool:
-    """
-    Validate if file has a valid extension
-    
-    Args:
-        file_path: Path to the file
-        valid_extensions: List of valid extensions (e.g., ['.mf4', '.MF4'])
-        
-    Returns:
-        True if extension is valid, False otherwise
-    """
-    try:
-        file_ext = Path(file_path).suffix.lower()
-        valid_exts_lower = [ext.lower() for ext in valid_extensions]
-        return file_ext in valid_exts_lower
-    except Exception as e:
-        logger.warning(f"Error validating file extension for {file_path}: {e}")
-        return False
-
 def format_file_size(size_bytes: int) -> str:
     """
-    Format file size in human readable format
+    Format file size in human readable format with improved precision
     
     Args:
         size_bytes: File size in bytes
@@ -62,27 +22,58 @@ def format_file_size(size_bytes: int) -> str:
         
         if i == 0:
             return f"{int(size)} {size_names[i]}"
-        else:
+        elif size >= 100:
+            return f"{size:.0f} {size_names[i]}"
+        elif size >= 10:
             return f"{size:.1f} {size_names[i]}"
+        else:
+            return f"{size:.2f} {size_names[i]}"
             
     except Exception as e:
         logger.warning(f"Error formatting file size {size_bytes}: {e}")
         return f"{size_bytes} B"
 
-def create_output_directory(directory_path: str) -> bool:
+def create_output_directory(directory_path: str, create_parents: bool = True) -> bool:
     """
-    Create output directory if it doesn't exist
+    Create output directory with enhanced error handling and permissions
     
     Args:
         directory_path: Path to the directory
+        create_parents: Whether to create parent directories
         
     Returns:
         True if directory exists or was created successfully, False otherwise
     """
     try:
-        Path(directory_path).mkdir(parents=True, exist_ok=True)
-        logger.info(f"Output directory ready: {directory_path}")
-        return True
+        with PerformanceTimer(f"create_directory_{os.path.basename(directory_path)}"):
+            path_obj = Path(directory_path)
+            
+            if path_obj.exists():
+                if path_obj.is_dir():
+                    logger.debug(f"Directory already exists: {directory_path}")
+                    return True
+                else:
+                    logger.error(f"Path exists but is not a directory: {directory_path}")
+                    return False
+            
+            path_obj.mkdir(parents=create_parents, exist_ok=True)
+            
+            # Verify creation and permissions
+            if path_obj.exists() and path_obj.is_dir():
+                # Test write permissions
+                test_file = path_obj / f".test_write_{int(time.time())}"
+                try:
+                    test_file.touch()
+                    test_file.unlink()
+                    logger.info(f"Output directory created and verified: {directory_path}")
+                    return True
+                except Exception as e:
+                    logger.error(f"Directory created but not writable: {directory_path} - {e}")
+                    return False
+            else:
+                logger.error(f"Failed to create directory: {directory_path}")
+                return False
+                
     except PermissionError:
         logger.error(f"Permission denied creating directory: {directory_path}")
         return False
@@ -90,38 +81,49 @@ def create_output_directory(directory_path: str) -> bool:
         logger.error(f"Error creating directory {directory_path}: {e}")
         return False
 
-def get_safe_filename(filename: str) -> str:
+def get_safe_filename(filename: str, max_length: int = 255) -> str:
     """
-    Get a safe filename by removing or replacing invalid characters
+    Get a safe filename with enhanced character handling and length management
     
     Args:
         filename: Original filename
+        max_length: Maximum filename length
         
     Returns:
         Safe filename string
     """
     try:
-        # Characters not allowed in Windows filenames
+        # Characters not allowed in Windows filenames (most restrictive)
         invalid_chars = '<>:"/\\|?*'
         
+        # Control characters (0-31)
+        control_chars = ''.join(chr(i) for i in range(32))
+        
         safe_filename = filename
-        for char in invalid_chars:
+        
+        # Replace invalid characters
+        for char in invalid_chars + control_chars:
             safe_filename = safe_filename.replace(char, '_')
         
-        # Remove control characters
-        safe_filename = ''.join(char for char in safe_filename if ord(char) >= 32)
+        # Replace multiple consecutive underscores with single underscore
+        while '__' in safe_filename:
+            safe_filename = safe_filename.replace('__', '_')
         
-        # Remove leading/trailing spaces and dots
-        safe_filename = safe_filename.strip(' .')
+        # Remove leading/trailing spaces, dots, and underscores
+        safe_filename = safe_filename.strip(' ._')
         
-        # Ensure filename is not empty and not too long
+        # Handle empty filename
         if not safe_filename:
             safe_filename = "converted_file"
-        elif len(safe_filename) > 255:
-            # Truncate while preserving extension
+        
+        # Handle length restriction while preserving extension
+        if len(safe_filename) > max_length:
             name, ext = os.path.splitext(safe_filename)
-            max_name_length = 255 - len(ext)
-            safe_filename = name[:max_name_length] + ext
+            max_name_length = max_length - len(ext) - 1  # -1 for safety
+            if max_name_length > 0:
+                safe_filename = name[:max_name_length] + ext
+            else:
+                safe_filename = name[:max_length]
         
         # Avoid reserved names on Windows
         reserved_names = {
@@ -140,94 +142,15 @@ def get_safe_filename(filename: str) -> str:
         logger.warning(f"Error creating safe filename from '{filename}': {e}")
         return "converted_file"
 
-def check_file_permissions(file_path: str) -> Dict[str, Any]:
-    """
-    Check file permissions for read/write access
-    
-    Args:
-        file_path: Path to the file
-        
-    Returns:
-        Dictionary with permission status and file info
-    """
-    permissions = {
-        'exists': False,
-        'readable': False,
-        'writable': False,
-        'size': 0,
-        'is_file': False,
-        'is_directory': False,
-        'last_modified': None,
-        'error': None
-    }
-    
-    try:
-        if os.path.exists(file_path):
-            permissions['exists'] = True
-            permissions['readable'] = os.access(file_path, os.R_OK)
-            permissions['writable'] = os.access(file_path, os.W_OK)
-            permissions['is_file'] = os.path.isfile(file_path)
-            permissions['is_directory'] = os.path.isdir(file_path)
-            
-            if permissions['is_file']:
-                permissions['size'] = os.path.getsize(file_path)
-                permissions['last_modified'] = os.path.getmtime(file_path)
-                
-    except Exception as e:
-        permissions['error'] = str(e)
-        logger.warning(f"Error checking permissions for {file_path}: {e}")
-    
-    return permissions
-
-def get_unique_filename(file_path: str) -> str:
-    """
-    Get a unique filename by adding a number suffix if file already exists
-    
-    Args:
-        file_path: Original file path
-        
-    Returns:
-        Unique file path
-    """
-    try:
-        if not os.path.exists(file_path):
-            return file_path
-        
-        path_obj = Path(file_path)
-        stem = path_obj.stem
-        suffix = path_obj.suffix
-        parent = path_obj.parent
-        
-        counter = 1
-        while counter <= 9999:  # Prevent infinite loop
-            new_name = f"{stem}_{counter:04d}{suffix}"
-            new_path = parent / new_name
-            
-            if not os.path.exists(new_path):
-                logger.info(f"Generated unique filename: {new_path}")
-                return str(new_path)
-            
-            counter += 1
-        
-        # If we couldn't find a unique name, use timestamp
-        import time
-        timestamp = int(time.time())
-        unique_name = f"{stem}_{timestamp}{suffix}"
-        return str(parent / unique_name)
-        
-    except Exception as e:
-        logger.error(f"Error generating unique filename for {file_path}: {e}")
-        return file_path
-
 def validate_output_directory(directory_path: str) -> Dict[str, Any]:
     """
-    Validate output directory accessibility and permissions
+    Enhanced output directory validation with comprehensive checks
     
     Args:
         directory_path: Path to the directory
         
     Returns:
-        Dictionary with validation results
+        Dictionary with detailed validation results
     """
     validation = {
         'valid': False,
@@ -236,282 +159,190 @@ def validate_output_directory(directory_path: str) -> Dict[str, Any]:
         'readable': False,
         'error_message': '',
         'free_space': 0,
-        'absolute_path': ''
+        'free_space_formatted': '0 B',
+        'absolute_path': '',
+        'parent_exists': False,
+        'is_network_drive': False
     }
     
     try:
-        # Convert to absolute path
-        abs_path = os.path.abspath(directory_path)
-        validation['absolute_path'] = abs_path
-        
-        # Check if directory exists
-        if os.path.exists(abs_path):
-            validation['exists'] = True
+        with PerformanceTimer("validate_output_directory"):
+            # Convert to absolute path
+            abs_path = os.path.abspath(directory_path)
+            validation['absolute_path'] = abs_path
             
-            # Check if it's actually a directory
-            if not os.path.isdir(abs_path):
-                validation['error_message'] = "Path exists but is not a directory"
-                return validation
+            # Check if parent directory exists
+            parent_path = os.path.dirname(abs_path)
+            validation['parent_exists'] = os.path.exists(parent_path)
             
-            # Check permissions
-            validation['readable'] = os.access(abs_path, os.R_OK)
-            validation['writable'] = os.access(abs_path, os.W_OK)
-            
-            if not validation['writable']:
-                validation['error_message'] = "Directory is not writable"
-                return validation
-                
-        else:
-            # Try to create directory
-            try:
-                os.makedirs(abs_path, exist_ok=True)
-                validation['exists'] = True
-                validation['readable'] = True
-                validation['writable'] = True
-                logger.info(f"Created output directory: {abs_path}")
-            except PermissionError:
-                validation['error_message'] = "Permission denied: Cannot create directory"
-                return validation
-            except Exception as e:
-                validation['error_message'] = f"Cannot create directory: {str(e)}"
-                return validation
-        
-        # Check available disk space
-        try:
-            if hasattr(shutil, 'disk_usage'):
-                total, used, free = shutil.disk_usage(abs_path)
-                validation['free_space'] = free
+            # Detect network drives (basic heuristic)
+            if platform.system() == "Windows":
+                validation['is_network_drive'] = abs_path.startswith('\\\\')
             else:
-                # Fallback for older Python versions
-                statvfs = os.statvfs(abs_path) if hasattr(os, 'statvfs') else None
-                if statvfs:
-                    validation['free_space'] = statvfs.f_bavail * statvfs.f_frsize
-        except Exception as e:
-            logger.debug(f"Could not determine free space: {e}")
-            validation['free_space'] = -1  # Unknown
-        
-        validation['valid'] = True
-        
+                validation['is_network_drive'] = '/mnt/' in abs_path or '/media/' in abs_path
+            
+            # Check if directory exists
+            if os.path.exists(abs_path):
+                validation['exists'] = True
+                
+                # Check if it's actually a directory
+                if not os.path.isdir(abs_path):
+                    validation['error_message'] = "Path exists but is not a directory"
+                    return validation
+                
+                # Check permissions
+                validation['readable'] = os.access(abs_path, os.R_OK)
+                validation['writable'] = os.access(abs_path, os.W_OK)
+                
+                if not validation['writable']:
+                    validation['error_message'] = "Directory is not writable"
+                    return validation
+                    
+            else:
+                # Try to create directory
+                try:
+                    os.makedirs(abs_path, exist_ok=True)
+                    validation['exists'] = True
+                    validation['readable'] = True
+                    validation['writable'] = True
+                    logger.info(f"Created output directory: {abs_path}")
+                except PermissionError:
+                    validation['error_message'] = "Permission denied: Cannot create directory"
+                    return validation
+                except Exception as e:
+                    validation['error_message'] = f"Cannot create directory: {str(e)}"
+                    return validation
+            
+            # Check available disk space
+            try:
+                if hasattr(shutil, 'disk_usage'):
+                    total, used, free = shutil.disk_usage(abs_path)
+                    validation['free_space'] = free
+                    validation['free_space_formatted'] = format_file_size(free)
+                    
+                    # Warn if very low space
+                    if free < 100 * 1024 * 1024:  # Less than 100MB
+                        validation['error_message'] = f"Very low disk space: {validation['free_space_formatted']}"
+                        logger.warning(validation['error_message'])
+                else:
+                    # Fallback for older Python versions
+                    try:
+                        statvfs = os.statvfs(abs_path)
+                        validation['free_space'] = statvfs.f_bavail * statvfs.f_frsize
+                        validation['free_space_formatted'] = format_file_size(validation['free_space'])
+                    except AttributeError:
+                        validation['free_space'] = -1  # Unknown
+                        validation['free_space_formatted'] = "Unknown"
+            except Exception as e:
+                logger.debug(f"Could not determine free space: {e}")
+                validation['free_space'] = -1
+                validation['free_space_formatted'] = "Unknown"
+            
+            validation['valid'] = True
+            
     except Exception as e:
         validation['error_message'] = f"Error validating directory: {str(e)}"
         logger.error(f"Directory validation error for {directory_path}: {e}")
     
     return validation
 
-def get_application_path() -> str:
-    """
-    Get the path where the application is running from
-    
-    Returns:
-        Application directory path
-    """
-    try:
-        if getattr(sys, 'frozen', False):
-            # Running as compiled executable
-            app_path = os.path.dirname(sys.executable)
-        else:
-            # Running as script
-            app_path = os.path.dirname(os.path.abspath(__file__))
-        
-        logger.debug(f"Application path: {app_path}")
-        return app_path
-        
-    except Exception as e:
-        logger.error(f"Error determining application path: {e}")
-        return os.getcwd()
-
-def setup_logging(log_level: str = 'INFO', log_file: Optional[str] = None) -> logging.Logger:
-    """
-    Set up logging configuration
-    
-    Args:
-        log_level: Logging level ('DEBUG', 'INFO', 'WARNING', 'ERROR')
-        log_file: Optional log file path
-        
-    Returns:
-        Configured logger instance
-    """
-    try:
-        # Create logs directory if needed
-        if log_file:
-            log_dir = os.path.dirname(log_file)
-            if log_dir:
-                os.makedirs(log_dir, exist_ok=True)
-        
-        # Configure logging format
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        
-        # Set up root logger
-        root_logger = logging.getLogger()
-        root_logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
-        
-        # Clear existing handlers
-        root_logger.handlers.clear()
-        
-        # Console handler
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(formatter)
-        root_logger.addHandler(console_handler)
-        
-        # File handler if specified
-        if log_file:
-            try:
-                file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
-                file_handler.setFormatter(formatter)
-                root_logger.addHandler(file_handler)
-                logger.info(f"Logging to file: {log_file}")
-            except Exception as e:
-                logger.warning(f"Could not set up file logging: {e}")
-        
-        return root_logger
-        
-    except Exception as e:
-        print(f"Error setting up logging: {e}")
-        return logging.getLogger()
-
-def log_conversion_result(file_path: str, format_type: str, success: bool, 
-                         error_msg: Optional[str] = None, output_size: int = 0):
-    """
-    Log conversion results to a log file with detailed information
-    
-    Args:
-        file_path: Input file path
-        format_type: Output format type
-        success: Whether conversion was successful
-        error_msg: Error message if conversion failed
-        output_size: Size of output file in bytes
-    """
-    try:
-        log_file = os.path.join(get_application_path(), "logs", "conversion.log")
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        
-        with open(log_file, "a", encoding="utf-8") as f:
-            from datetime import datetime
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            status = "SUCCESS" if success else "FAILED"
-            
-            log_entry = f"[{timestamp}] {status}: {os.path.basename(file_path)} → {format_type.upper()}"
-            
-            if success and output_size > 0:
-                log_entry += f" ({format_file_size(output_size)})"
-            
-            if not success and error_msg:
-                log_entry += f" - Error: {error_msg}"
-            
-            f.write(log_entry + "\n")
-            
-    except Exception as e:
-        logger.debug(f"Could not write to conversion log: {e}")
-
-def cleanup_temp_files(temp_directory: Optional[str] = None, max_age_hours: int = 24):
-    """
-    Clean up temporary files created during conversion
-    
-    Args:
-        temp_directory: Optional specific directory to clean
-        max_age_hours: Maximum age of temp files to keep (in hours)
-    """
-    try:
-        import time
-        
-        if temp_directory:
-            temp_patterns = [
-                os.path.join(temp_directory, "mf4bridge_temp_*"),
-                os.path.join(temp_directory, "*.tmp")
-            ]
-        else:
-            temp_dir = tempfile.gettempdir()
-            temp_patterns = [
-                os.path.join(temp_dir, "mf4bridge_temp_*"),
-                os.path.join(temp_dir, "mf4bridge_*.tmp")
-            ]
-        
-        files_cleaned = 0
-        bytes_freed = 0
-        current_time = time.time()
-        max_age_seconds = max_age_hours * 3600
-        
-        for pattern in temp_patterns:
-            temp_files = glob.glob(pattern)
-            
-            for temp_file in temp_files:
-                try:
-                    # Check file age
-                    file_age = current_time - os.path.getmtime(temp_file)
-                    if file_age < max_age_seconds:
-                        continue  # Skip recent files
-                    
-                    file_size = 0
-                    if os.path.isfile(temp_file):
-                        file_size = os.path.getsize(temp_file)
-                        os.remove(temp_file)
-                    elif os.path.isdir(temp_file):
-                        file_size = sum(
-                            os.path.getsize(os.path.join(dirpath, filename))
-                            for dirpath, dirnames, filenames in os.walk(temp_file)
-                            for filename in filenames
-                        )
-                        shutil.rmtree(temp_file)
-                    
-                    files_cleaned += 1
-                    bytes_freed += file_size
-                    
-                except Exception as e:
-                    logger.debug(f"Could not clean temp file {temp_file}: {e}")
-                    continue
-        
-        if files_cleaned > 0:
-            logger.info(f"Cleaned {files_cleaned} temp files, freed {format_file_size(bytes_freed)}")
-        
-    except Exception as e:
-        logger.debug(f"Temp file cleanup failed: {e}")
-
 def get_system_info() -> Dict[str, Any]:
     """
-    Get comprehensive system information for debugging purposes
+    Get comprehensive system information for debugging and optimization
     
     Returns:
-        Dictionary with system information
+        Dictionary with detailed system information
     """
     info = {
         'platform': 'unknown',
+        'platform_detailed': 'unknown',
         'python_version': 'unknown',
+        'python_executable': 'unknown',
         'architecture': 'unknown',
         'machine': 'unknown',
         'processor': 'unknown',
+        'cpu_count': 0,
         'memory_total': 0,
         'memory_available': 0,
+        'memory_total_formatted': '0 B',
+        'memory_available_formatted': '0 B',
+        'disk_space_total': 0,
         'disk_space_free': 0,
+        'disk_space_total_formatted': '0 B',
+        'disk_space_free_formatted': '0 B',
+        'temp_directory': '',
+        'gui_available': False,
         'environment': {}
     }
     
     try:
-        info['platform'] = platform.platform()
-        info['python_version'] = platform.python_version()
-        info['architecture'] = platform.architecture()[0]
-        info['machine'] = platform.machine()
-        info['processor'] = platform.processor()
-        
-        # Memory information (if psutil is available)
-        try:
-            import psutil
-            memory = psutil.virtual_memory()
-            info['memory_total'] = memory.total
-            info['memory_available'] = memory.available
+        with PerformanceTimer("get_system_info"):
+            # Basic platform information
+            info['platform'] = platform.system()
+            info['platform_detailed'] = platform.platform()
+            info['python_version'] = platform.python_version()
+            info['python_executable'] = sys.executable
+            info['architecture'] = platform.architecture()[0]
+            info['machine'] = platform.machine()
+            info['processor'] = platform.processor()
+            info['cpu_count'] = os.cpu_count() or 0
             
-            disk = psutil.disk_usage(os.getcwd())
-            info['disk_space_free'] = disk.free
-        except ImportError:
-            logger.debug("psutil not available for detailed system info")
-        
-        # Relevant environment variables
-        env_vars = ['PATH', 'PYTHONPATH', 'HOME', 'USER', 'USERNAME', 'TEMP', 'TMP']
-        for var in env_vars:
-            if var in os.environ:
-                info['environment'][var] = os.environ[var]
+            # Memory information (if psutil is available)
+            try:
+                import psutil
+                memory = psutil.virtual_memory()
+                info['memory_total'] = memory.total
+                info['memory_available'] = memory.available
+                info['memory_total_formatted'] = format_file_size(memory.total)
+                info['memory_available_formatted'] = format_file_size(memory.available)
+                
+                # Disk information
+                disk = psutil.disk_usage(os.getcwd())
+                info['disk_space_total'] = disk.total
+                info['disk_space_free'] = disk.free
+                info['disk_space_total_formatted'] = format_file_size(disk.total)
+                info['disk_space_free_formatted'] = format_file_size(disk.free)
+                
+            except ImportError:
+                logger.debug("psutil not available for detailed system info")
+                
+                # Fallback methods
+                try:
+                    if hasattr(shutil, 'disk_usage'):
+                        disk = shutil.disk_usage(os.getcwd())
+                        info['disk_space_total'] = disk.total
+                        info['disk_space_free'] = disk.free
+                        info['disk_space_total_formatted'] = format_file_size(disk.total)
+                        info['disk_space_free_formatted'] = format_file_size(disk.free)
+                except Exception:
+                    pass
+            
+            # Temporary directory
+            info['temp_directory'] = tempfile.gettempdir()
+            
+            # GUI availability
+            try:
+                import tkinter
+                # Try to create a test Tk instance
+                test_root = tkinter.Tk()
+                test_root.withdraw()
+                test_root.destroy()
+                info['gui_available'] = True
+            except Exception:
+                info['gui_available'] = False
+            
+            # Relevant environment variables
+            env_vars = [
+                'PATH', 'PYTHONPATH', 'HOME', 'USER', 'USERNAME', 
+                'TEMP', 'TMP', 'DISPLAY', 'SHELL', 'TERM'
+            ]
+            for var in env_vars:
+                if var in os.environ:
+                    # Truncate very long environment variables
+                    value = os.environ[var]
+                    if len(value) > 200:
+                        value = value[:197] + "..."
+                    info['environment'][var] = value
         
     except Exception as e:
         logger.warning(f"Error collecting system info: {e}")
@@ -520,74 +351,344 @@ def get_system_info() -> Dict[str, Any]:
 
 def check_dependencies() -> Dict[str, Any]:
     """
-    Check for required and optional dependencies
+    Enhanced dependency checking with version compatibility analysis
     
     Returns:
-        Dictionary with dependency status
+        Dictionary with comprehensive dependency status
     """
     dependencies = {
         'required': {},
         'optional': {},
-        'all_satisfied': True
+        'all_satisfied': True,
+        'compatibility_issues': [],
+        'recommendations': []
     }
     
-    # Required dependencies
-    required_deps = {
-        'tkinter': 'GUI framework',
-        'pathlib': 'Path operations',
-        'csv': 'CSV file operations',
-        'threading': 'Multi-threading support'
-    }
+    try:
+        with PerformanceTimer("check_dependencies"):
+            # Required dependencies
+            required_deps = {
+                'tkinter': {'description': 'GUI framework', 'builtin': True},
+                'pathlib': {'description': 'Path operations', 'builtin': True},
+                'csv': {'description': 'CSV file operations', 'builtin': True},
+                'threading': {'description': 'Multi-threading support', 'builtin': True},
+                'os': {'description': 'Operating system interface', 'builtin': True},
+                'sys': {'description': 'System-specific parameters', 'builtin': True}
+            }
+            
+            # Optional dependencies with version requirements
+            optional_deps = {
+                'asammdf': {
+                    'description': 'MDF4 file processing',
+                    'min_version': '7.0.0',
+                    'recommended_version': '7.4.0'
+                },
+                'customtkinter': {
+                    'description': 'Enhanced GUI components',
+                    'min_version': '5.0.0',
+                    'recommended_version': '5.2.0'
+                },
+                'numpy': {
+                    'description': 'Numerical computations',
+                    'min_version': '1.20.0',
+                    'max_version': '1.26.4',  # Avoid 2.x
+                    'recommended_version': '1.24.0'
+                },
+                'pandas': {
+                    'description': 'Data manipulation',
+                    'min_version': '1.5.0',
+                    'max_version': '2.2.0',
+                    'recommended_version': '2.0.0'
+                },
+                'psutil': {
+                    'description': 'System information',
+                    'min_version': '5.8.0',
+                    'recommended_version': '5.9.0'
+                }
+            }
+            
+            # Check required dependencies
+            for dep_name, dep_info in required_deps.items():
+                try:
+                    module = __import__(dep_name)
+                    version = 'built-in' if dep_info.get('builtin') else getattr(module, '__version__', 'unknown')
+                    dependencies['required'][dep_name] = {
+                        'available': True,
+                        'version': version,
+                        'description': dep_info['description'],
+                        'status': 'ok'
+                    }
+                except ImportError:
+                    dependencies['required'][dep_name] = {
+                        'available': False,
+                        'version': None,
+                        'description': dep_info['description'],
+                        'status': 'missing'
+                    }
+                    dependencies['all_satisfied'] = False
+            
+            # Check optional dependencies with version analysis
+            for dep_name, dep_info in optional_deps.items():
+                try:
+                    module = __import__(dep_name)
+                    version = getattr(module, '__version__', 'unknown')
+                    
+                    # Analyze version compatibility
+                    status = 'ok'
+                    issues = []
+                    
+                    if version != 'unknown':
+                        # Check minimum version
+                        if 'min_version' in dep_info:
+                            if _compare_versions(version, dep_info['min_version']) < 0:
+                                status = 'outdated'
+                                issues.append(f"Version {version} below minimum {dep_info['min_version']}")
+                        
+                        # Check maximum version
+                        if 'max_version' in dep_info:
+                            if _compare_versions(version, dep_info['max_version']) > 0:
+                                status = 'incompatible'
+                                issues.append(f"Version {version} above maximum {dep_info['max_version']}")
+                        
+                        # Special case for NumPy 2.x compatibility
+                        if dep_name == 'numpy' and version.startswith('2.'):
+                            status = 'warning'
+                            issues.append("NumPy 2.x may cause compatibility issues with asammdf")
+                            dependencies['compatibility_issues'].append(
+                                "NumPy 2.x detected - consider downgrading to 1.x for better asammdf compatibility"
+                            )
+                    
+                    dependencies['optional'][dep_name] = {
+                        'available': True,
+                        'version': version,
+                        'description': dep_info['description'],
+                        'status': status,
+                        'issues': issues,
+                        'min_version': dep_info.get('min_version'),
+                        'recommended_version': dep_info.get('recommended_version')
+                    }
+                    
+                    # Add recommendations
+                    if status in ['outdated', 'incompatible']:
+                        rec_version = dep_info.get('recommended_version', dep_info.get('min_version'))
+                        dependencies['recommendations'].append(
+                            f"Update {dep_name}: pip install {dep_name}>={rec_version}"
+                        )
+                        
+                except ImportError:
+                    dependencies['optional'][dep_name] = {
+                        'available': False,
+                        'version': None,
+                        'description': dep_info['description'],
+                        'status': 'missing',
+                        'issues': [],
+                        'min_version': dep_info.get('min_version'),
+                        'recommended_version': dep_info.get('recommended_version')
+                    }
+                    
+                    # Add installation recommendation
+                    if dep_name in ['asammdf', 'numpy']:  # Critical optional deps
+                        rec_version = dep_info.get('recommended_version', dep_info.get('min_version', ''))
+                        version_spec = f">={rec_version}" if rec_version else ""
+                        dependencies['recommendations'].append(
+                            f"Install {dep_name}: pip install {dep_name}{version_spec}"
+                        )
     
-    # Optional dependencies  
-    optional_deps = {
-        'asammdf': 'MDF4 file processing',
-        'customtkinter': 'Enhanced GUI components',
-        'numpy': 'Numerical computations',
-        'psutil': 'System information'
-    }
-    
-    for dep_name, description in required_deps.items():
-        try:
-            __import__(dep_name)
-            dependencies['required'][dep_name] = {
-                'available': True,
-                'version': 'built-in' if dep_name in ['tkinter', 'pathlib', 'csv', 'threading'] else 'unknown',
-                'description': description
-            }
-        except ImportError:
-            dependencies['required'][dep_name] = {
-                'available': False,
-                'version': None,
-                'description': description
-            }
-            dependencies['all_satisfied'] = False
-    
-    for dep_name, description in optional_deps.items():
-        try:
-            module = __import__(dep_name)
-            version = getattr(module, '__version__', 'unknown')
-            dependencies['optional'][dep_name] = {
-                'available': True,
-                'version': version,
-                'description': description
-            }
-        except ImportError:
-            dependencies['optional'][dep_name] = {
-                'available': False,
-                'version': None,
-                'description': description
-            }
+    except Exception as e:
+        logger.error(f"Error checking dependencies: {e}")
+        dependencies['error'] = str(e)
     
     return dependencies
 
-def create_backup(file_path: str, backup_dir: Optional[str] = None) -> Optional[str]:
+def _compare_versions(version1: str, version2: str) -> int:
     """
-    Create a backup of a file before overwriting
+    Compare two version strings
+    
+    Returns:
+        -1 if version1 < version2
+         0 if version1 == version2
+         1 if version1 > version2
+    """
+    try:
+        # Simple version comparison (works for most cases)
+        v1_parts = [int(x) for x in version1.split('.')]
+        v2_parts = [int(x) for x in version2.split('.')]
+        
+        # Pad shorter version with zeros
+        max_len = max(len(v1_parts), len(v2_parts))
+        v1_parts.extend([0] * (max_len - len(v1_parts)))
+        v2_parts.extend([0] * (max_len - len(v2_parts)))
+        
+        for v1, v2 in zip(v1_parts, v2_parts):
+            if v1 < v2:
+                return -1
+            elif v1 > v2:
+                return 1
+        
+        return 0
+        
+    except Exception:
+        # Fallback: string comparison
+        if version1 < version2:
+            return -1
+        elif version1 > version2:
+            return 1
+        else:
+            return 0
+
+def cleanup_temp_files(temp_directory: Optional[str] = None, max_age_hours: int = 24, 
+                      pattern: str = "mf4bridge*") -> Dict[str, Any]:
+    """
+    Enhanced temporary file cleanup with detailed reporting
+    
+    Args:
+        temp_directory: Optional specific directory to clean
+        max_age_hours: Maximum age of temp files to keep (in hours)
+        pattern: File pattern to match for cleanup
+        
+    Returns:
+        Dictionary with cleanup results
+    """
+    results = {
+        'files_cleaned': 0,
+        'bytes_freed': 0,
+        'bytes_freed_formatted': '0 B',
+        'errors': [],
+        'directories_cleaned': 0,
+        'duration': 0
+    }
+    
+    try:
+        with PerformanceTimer("cleanup_temp_files") as timer:
+            import time
+            
+            if temp_directory:
+                temp_patterns = [os.path.join(temp_directory, pattern)]
+            else:
+                temp_dir = tempfile.gettempdir()
+                temp_patterns = [
+                    os.path.join(temp_dir, pattern),
+                    os.path.join(temp_dir, f"{pattern}.tmp"),
+                    os.path.join(temp_dir, f"tmp_{pattern}")
+                ]
+            
+            current_time = time.time()
+            max_age_seconds = max_age_hours * 3600
+            
+            for pattern_path in temp_patterns:
+                try:
+                    matches = glob.glob(pattern_path)
+                    
+                    for temp_path in matches:
+                        try:
+                            # Check file age
+                            if os.path.exists(temp_path):
+                                file_age = current_time - os.path.getmtime(temp_path)
+                                if file_age < max_age_seconds:
+                                    continue  # Skip recent files
+                                
+                                # Calculate size before deletion
+                                size_freed = 0
+                                if os.path.isfile(temp_path):
+                                    size_freed = os.path.getsize(temp_path)
+                                    os.remove(temp_path)
+                                    results['files_cleaned'] += 1
+                                elif os.path.isdir(temp_path):
+                                    # Calculate directory size
+                                    for dirpath, dirnames, filenames in os.walk(temp_path):
+                                        for filename in filenames:
+                                            try:
+                                                file_path = os.path.join(dirpath, filename)
+                                                size_freed += os.path.getsize(file_path)
+                                            except Exception:
+                                                pass
+                                    
+                                    shutil.rmtree(temp_path)
+                                    results['directories_cleaned'] += 1
+                                
+                                results['bytes_freed'] += size_freed
+                                
+                        except Exception as e:
+                            error_msg = f"Could not clean {temp_path}: {e}"
+                            results['errors'].append(error_msg)
+                            logger.debug(error_msg)
+                            
+                except Exception as e:
+                    error_msg = f"Error processing pattern {pattern_path}: {e}"
+                    results['errors'].append(error_msg)
+                    logger.debug(error_msg)
+            
+            results['bytes_freed_formatted'] = format_file_size(results['bytes_freed'])
+            results['duration'] = getattr(timer, 'start_time', 0)  # Will be set in __exit__
+            
+            if results['files_cleaned'] > 0 or results['directories_cleaned'] > 0:
+                logger.info(
+                    f"Cleanup completed: {results['files_cleaned']} files, "
+                    f"{results['directories_cleaned']} directories, "
+                    f"freed {results['bytes_freed_formatted']}"
+                )
+        
+    except Exception as e:
+        error_msg = f"Temp file cleanup failed: {e}"
+        results['errors'].append(error_msg)
+        logger.error(error_msg)
+    
+    return results
+
+def batch_file_operations(file_paths: List[str], operation_func, max_workers: int = 4) -> List[Any]:
+    """
+    Perform file operations in parallel with thread pool
+    
+    Args:
+        file_paths: List of file paths to process
+        operation_func: Function to apply to each file path
+        max_workers: Maximum number of worker threads
+        
+    Returns:
+        List of results from operation_func
+    """
+    results = []
+    
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_path = {
+                executor.submit(operation_func, path): path 
+                for path in file_paths
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_path):
+                path = future_to_path[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    logger.error(f"Error processing {path}: {e}")
+                    results.append(None)
+                    
+    except Exception as e:
+        logger.error(f"Error in batch file operations: {e}")
+        # Fallback to sequential processing
+        for path in file_paths:
+            try:
+                result = operation_func(path)
+                results.append(result)
+            except Exception as e:
+                logger.error(f"Error processing {path}: {e}")
+                results.append(None)
+    
+    return results
+
+def create_backup(file_path: str, backup_dir: Optional[str] = None, 
+                 keep_backups: int = 5) -> Optional[str]:
+    """
+    Enhanced backup creation with rotation and verification
     
     Args:
         file_path: Path to file to backup
         backup_dir: Optional backup directory (default: same directory as file)
+        keep_backups: Number of backups to keep (rotation)
         
     Returns:
         Path to backup file, or None if backup failed
@@ -611,9 +712,657 @@ def create_backup(file_path: str, backup_dir: Optional[str] = None) -> Optional[
         
         # Copy file to backup location
         shutil.copy2(file_path, backup_path)
-        logger.info(f"Created backup: {backup_path}")
-        return backup_path
+        
+        # Verify backup
+        if os.path.exists(backup_path):
+            original_size = os.path.getsize(file_path)
+            backup_size = os.path.getsize(backup_path)
+            
+            if original_size == backup_size:
+                logger.info(f"Created verified backup: {backup_path}")
+                
+                # Cleanup old backups
+                _cleanup_old_backups(backup_dir, file_name, keep_backups)
+                
+                return backup_path
+            else:
+                logger.error(f"Backup verification failed: size mismatch")
+                try:
+                    os.remove(backup_path)
+                except:
+                    pass
+                return None
+        else:
+            logger.error(f"Backup file was not created: {backup_path}")
+            return None
         
     except Exception as e:
         logger.error(f"Failed to create backup of {file_path}: {e}")
         return None
+
+def _cleanup_old_backups(backup_dir: str, original_filename: str, keep_count: int):
+    """Clean up old backup files, keeping only the most recent ones"""
+    try:
+        backup_pattern = os.path.join(backup_dir, f"{original_filename}.backup_*")
+        backup_files = glob.glob(backup_pattern)
+        
+        if len(backup_files) > keep_count:
+            # Sort by modification time (oldest first)
+            backup_files.sort(key=lambda x: os.path.getmtime(x))
+            
+            # Remove oldest backups
+            files_to_remove = backup_files[:-keep_count]
+            for backup_file in files_to_remove:
+                try:
+                    os.remove(backup_file)
+                    logger.debug(f"Removed old backup: {backup_file}")
+                except Exception as e:
+                    logger.debug(f"Could not remove old backup {backup_file}: {e}")
+                    
+    except Exception as e:
+        logger.debug(f"Error cleaning up old backups: {e}")
+
+def get_application_path() -> str:
+    """
+    Get the path where the application is running from with enhanced detection
+    
+    Returns:
+        Application directory path
+    """
+    try:
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            if hasattr(sys, '_MEIPASS'):
+                # PyInstaller bundle
+                app_path = os.path.dirname(sys.executable)
+            else:
+                # Other packaging tools
+                app_path = os.path.dirname(sys.executable)
+        else:
+            # Running as script
+            app_path = os.path.dirname(os.path.abspath(__file__))
+        
+        logger.debug(f"Application path detected: {app_path}")
+        return app_path
+        
+    except Exception as e:
+        logger.error(f"Error determining application path: {e}")
+        return os.getcwd()
+
+def setup_logging(log_level: str = 'INFO', log_file: Optional[str] = None, 
+                 max_log_files: int = 5, max_log_size_mb: int = 10) -> logging.Logger:
+    """
+    Enhanced logging setup with rotation and better formatting
+    
+    Args:
+        log_level: Logging level ('DEBUG', 'INFO', 'WARNING', 'ERROR')
+        log_file: Optional log file path
+        max_log_files: Maximum number of log files to keep
+        max_log_size_mb: Maximum size of log file in MB before rotation
+        
+    Returns:
+        Configured logger instance
+    """
+    try:
+        # Create logs directory if needed
+        if log_file:
+            log_dir = os.path.dirname(log_file)
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
+        
+        # Enhanced logging format
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        
+        # Set up root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
+        
+        # Clear existing handlers
+        root_logger.handlers.clear()
+        
+        # Console handler with color support if available
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+        root_logger.addHandler(console_handler)
+        
+        # File handler with rotation if specified
+        if log_file:
+            try:
+                from logging.handlers import RotatingFileHandler
+                
+                file_handler = RotatingFileHandler(
+                    log_file,
+                    maxBytes=max_log_size_mb * 1024 * 1024,
+                    backupCount=max_log_files,
+                    encoding='utf-8'
+                )
+                file_handler.setFormatter(formatter)
+                root_logger.addHandler(file_handler)
+                
+                logger.info(f"Logging to file: {log_file} (rotation: {max_log_files} files, {max_log_size_mb}MB each)")
+                
+            except Exception as e:
+                logger.warning(f"Could not set up file logging: {e}")
+        
+        return root_logger
+        
+    except Exception as e:
+        print(f"Error setting up logging: {e}")
+        return logging.getLogger()
+
+def log_conversion_result(file_path: str, format_type: str, success: bool, 
+                         error_msg: Optional[str] = None, output_size: int = 0,
+                         conversion_time: float = 0.0, additional_info: Optional[Dict] = None):
+    """
+    Enhanced conversion result logging with detailed metrics
+    
+    Args:
+        file_path: Input file path
+        format_type: Output format type
+        success: Whether conversion was successful
+        error_msg: Error message if conversion failed
+        output_size: Size of output file in bytes
+        conversion_time: Time taken for conversion in seconds
+        additional_info: Additional information to log
+    """
+    try:
+        log_dir = Path(get_application_path()) / "logs"
+        log_dir.mkdir(exist_ok=True)
+        
+        log_file = log_dir / "conversion_detailed.log"
+        
+        with open(log_file, "a", encoding="utf-8") as f:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            status = "SUCCESS" if success else "FAILED"
+            
+            # Basic log entry
+            log_entry = f"[{timestamp}] {status}: {os.path.basename(file_path)} → {format_type.upper()}"
+            
+            # Add performance metrics
+            if success and output_size > 0:
+                log_entry += f" ({format_file_size(output_size)}"
+                if conversion_time > 0:
+                    log_entry += f", {conversion_time:.2f}s"
+                log_entry += ")"
+            
+            # Add error information
+            if not success and error_msg:
+                log_entry += f" - Error: {error_msg}"
+            
+            # Add additional info
+            if additional_info:
+                info_parts = []
+                for key, value in additional_info.items():
+                    info_parts.append(f"{key}={value}")
+                if info_parts:
+                    log_entry += f" - Info: {', '.join(info_parts)}"
+            
+            f.write(log_entry + "\n")
+            
+    except Exception as e:
+        logger.debug(f"Could not write to conversion log: {e}")
+
+def get_unique_filename(file_path: str, max_attempts: int = 9999) -> str:
+    """
+    Enhanced unique filename generation with better collision handling
+    
+    Args:
+        file_path: Original file path
+        max_attempts: Maximum number of attempts to find unique name
+        
+    Returns:
+        Unique file path
+    """
+    try:
+        if not os.path.exists(file_path):
+            return file_path
+        
+        path_obj = Path(file_path)
+        stem = path_obj.stem
+        suffix = path_obj.suffix
+        parent = path_obj.parent
+        
+        # Try numbered suffixes first
+        for counter in range(1, max_attempts + 1):
+            if counter <= 999:
+                new_name = f"{stem}_{counter:03d}{suffix}"
+            else:
+                new_name = f"{stem}_{counter}{suffix}"
+            
+            new_path = parent / new_name
+            
+            if not os.path.exists(new_path):
+                logger.debug(f"Generated unique filename: {new_path}")
+                return str(new_path)
+        
+        # If all numbered attempts failed, use timestamp + random
+        import time
+        import random
+        timestamp = int(time.time())
+        random_suffix = random.randint(1000, 9999)
+        unique_name = f"{stem}_{timestamp}_{random_suffix}{suffix}"
+        
+        return str(parent / unique_name)
+        
+    except Exception as e:
+        logger.error(f"Error generating unique filename for {file_path}: {e}")
+        # Fallback: add timestamp
+        try:
+            import time
+            timestamp = int(time.time())
+            path_obj = Path(file_path)
+            fallback_name = f"{path_obj.stem}_{timestamp}{path_obj.suffix}"
+            return str(path_obj.parent / fallback_name)
+        except:
+            return file_path
+
+def monitor_system_resources() -> Dict[str, Any]:
+    """
+    Monitor system resources and return current status
+    
+    Returns:
+        Dictionary with current resource usage
+    """
+    resources = {
+        'timestamp': time.time(),
+        'memory_percent': 0.0,
+        'memory_available_mb': 0.0,
+        'cpu_percent': 0.0,
+        'disk_free_mb': 0.0,
+        'disk_free_percent': 0.0,
+        'load_average': None,
+        'warnings': []
+    }
+    
+    try:
+        # Try to use psutil for detailed information
+        try:
+            import psutil
+            
+            # Memory information
+            memory = psutil.virtual_memory()
+            resources['memory_percent'] = memory.percent
+            resources['memory_available_mb'] = memory.available / (1024 * 1024)
+            
+            # CPU information
+            resources['cpu_percent'] = psutil.cpu_percent(interval=0.1)
+            
+            # Disk information
+            disk = psutil.disk_usage(os.getcwd())
+            resources['disk_free_mb'] = disk.free / (1024 * 1024)
+            resources['disk_free_percent'] = (disk.free / disk.total) * 100
+            
+            # Load average (Unix-like systems)
+            if hasattr(os, 'getloadavg'):
+                resources['load_average'] = os.getloadavg()
+            
+            # Generate warnings
+            if resources['memory_percent'] > 90:
+                resources['warnings'].append("High memory usage detected")
+            
+            if resources['disk_free_percent'] < 10:
+                resources['warnings'].append("Low disk space detected")
+            
+            if resources['cpu_percent'] > 90:
+                resources['warnings'].append("High CPU usage detected")
+                
+        except ImportError:
+            # Fallback without psutil
+            try:
+                # Basic disk space check
+                if hasattr(shutil, 'disk_usage'):
+                    disk = shutil.disk_usage(os.getcwd())
+                    resources['disk_free_mb'] = disk.free / (1024 * 1024)
+                    resources['disk_free_percent'] = (disk.free / disk.total) * 100
+                    
+                    if resources['disk_free_percent'] < 10:
+                        resources['warnings'].append("Low disk space detected")
+            except Exception:
+                pass
+        
+    except Exception as e:
+        logger.debug(f"Error monitoring system resources: {e}")
+        resources['error'] = str(e)
+    
+    return resources
+
+def optimize_for_large_files(file_size_mb: float) -> Dict[str, Any]:
+    """
+    Get optimization settings based on file size
+    
+    Args:
+        file_size_mb: File size in megabytes
+        
+    Returns:
+        Dictionary with optimization settings
+    """
+    settings = {
+        'chunk_size': 10000,
+        'memory_limit_mb': 1000,
+        'use_threading': False,
+        'progress_update_interval': 1000,
+        'garbage_collection_interval': 50000,
+        'warnings': []
+    }
+    
+    try:
+        if file_size_mb < 10:
+            # Small files - optimize for speed
+            settings['chunk_size'] = 50000
+            settings['progress_update_interval'] = 5000
+            
+        elif file_size_mb < 100:
+            # Medium files - balanced approach
+            settings['chunk_size'] = 20000
+            settings['progress_update_interval'] = 2000
+            
+        elif file_size_mb < 500:
+            # Large files - optimize for memory
+            settings['chunk_size'] = 5000
+            settings['memory_limit_mb'] = 500
+            settings['progress_update_interval'] = 500
+            settings['garbage_collection_interval'] = 25000
+            settings['warnings'].append("Large file detected - using memory-optimized settings")
+            
+        else:
+            # Very large files - aggressive memory optimization
+            settings['chunk_size'] = 2000
+            settings['memory_limit_mb'] = 250
+            settings['progress_update_interval'] = 200
+            settings['garbage_collection_interval'] = 10000
+            settings['use_threading'] = True  # Better for very large files
+            settings['warnings'].append("Very large file detected - using aggressive memory optimization")
+        
+        # System-specific adjustments
+        system_info = get_system_info()
+        if system_info.get('memory_total', 0) > 0:
+            total_memory_mb = system_info['memory_total'] / (1024 * 1024)
+            if total_memory_mb < 4000:  # Less than 4GB RAM
+                settings['memory_limit_mb'] = min(settings['memory_limit_mb'], 200)
+                settings['chunk_size'] = min(settings['chunk_size'], 2000)
+                settings['warnings'].append("Low system memory - reducing memory limits")
+        
+    except Exception as e:
+        logger.debug(f"Error optimizing for file size {file_size_mb}MB: {e}")
+    
+    return settings
+
+class ProgressReporter:
+    """Enhanced progress reporting with estimated time remaining"""
+    
+    def __init__(self, total_items: int, update_callback: Optional[Callable] = None):
+        self.total_items = total_items
+        self.update_callback = update_callback
+        self.start_time = time.time()
+        self.last_update_time = self.start_time
+        self.processed_items = 0
+        self.last_percentage = 0
+        
+    def update(self, processed_items: int, message: str = ""):
+        """Update progress with ETA calculation"""
+        self.processed_items = processed_items
+        current_time = time.time()
+        
+        # Calculate percentage
+        percentage = (processed_items / self.total_items) * 100 if self.total_items > 0 else 0
+        
+        # Only update if significant change or enough time passed
+        time_since_update = current_time - self.last_update_time
+        percentage_change = abs(percentage - self.last_percentage)
+        
+        if percentage_change >= 1.0 or time_since_update >= 2.0 or processed_items >= self.total_items:
+            # Calculate ETA
+            elapsed_time = current_time - self.start_time
+            if processed_items > 0 and elapsed_time > 0:
+                rate = processed_items / elapsed_time
+                remaining_items = self.total_items - processed_items
+                eta_seconds = remaining_items / rate if rate > 0 else 0
+                
+                # Format ETA
+                if eta_seconds > 3600:
+                    eta_str = f"{eta_seconds/3600:.1f}h"
+                elif eta_seconds > 60:
+                    eta_str = f"{eta_seconds/60:.1f}m"
+                else:
+                    eta_str = f"{eta_seconds:.0f}s"
+                
+                enhanced_message = f"{message} (ETA: {eta_str})" if message else f"ETA: {eta_str}"
+            else:
+                enhanced_message = message
+            
+            # Call update callback
+            if self.update_callback:
+                self.update_callback(enhanced_message, percentage)
+            
+            self.last_update_time = current_time
+            self.last_percentage = percentage
+
+def create_performance_report(start_time: float, end_time: float, 
+                            stats: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Create a comprehensive performance report
+    
+    Args:
+        start_time: Operation start time
+        end_time: Operation end time
+        stats: Statistics dictionary
+        
+    Returns:
+        Performance report dictionary
+    """
+    report = {
+        'duration_seconds': end_time - start_time,
+        'duration_formatted': '',
+        'throughput': {},
+        'resource_usage': {},
+        'efficiency_metrics': {},
+        'recommendations': []
+    }
+    
+    try:
+        duration = report['duration_seconds']
+        
+        # Format duration
+        if duration > 3600:
+            report['duration_formatted'] = f"{duration/3600:.2f} hours"
+        elif duration > 60:
+            report['duration_formatted'] = f"{duration/60:.2f} minutes"
+        else:
+            report['duration_formatted'] = f"{duration:.2f} seconds"
+        
+        # Calculate throughput metrics
+        if 'total_messages' in stats and duration > 0:
+            messages_per_second = stats['total_messages'] / duration
+            report['throughput']['messages_per_second'] = messages_per_second
+            report['throughput']['messages_per_minute'] = messages_per_second * 60
+        
+        if 'total_files' in stats and duration > 0:
+            files_per_minute = (stats['total_files'] / duration) * 60
+            report['throughput']['files_per_minute'] = files_per_minute
+        
+        if 'total_output_size' in stats and duration > 0:
+            mb_per_second = (stats['total_output_size'] / (1024 * 1024)) / duration
+            report['throughput']['mb_per_second'] = mb_per_second
+        
+        # Resource usage metrics
+        if 'peak_memory_mb' in stats:
+            report['resource_usage']['peak_memory_mb'] = stats['peak_memory_mb']
+            
+            # Memory efficiency recommendations
+            if stats['peak_memory_mb'] > 1000:
+                report['recommendations'].append("Consider reducing chunk size for lower memory usage")
+            elif stats['peak_memory_mb'] < 100:
+                report['recommendations'].append("Could increase chunk size for better performance")
+        
+        # Efficiency metrics
+        if 'successful_conversions' in stats and 'total_conversions' in stats:
+            success_rate = (stats['successful_conversions'] / stats['total_conversions']) * 100
+            report['efficiency_metrics']['success_rate_percent'] = success_rate
+            
+            if success_rate < 90:
+                report['recommendations'].append("Low success rate - check input file quality")
+        
+        # Performance recommendations
+        if duration > 300:  # More than 5 minutes
+            report['recommendations'].append("Long conversion time - consider processing smaller batches")
+        
+        if report['throughput'].get('messages_per_second', 0) < 1000:
+            report['recommendations'].append("Low throughput - check system resources and file optimization")
+        
+    except Exception as e:
+        logger.error(f"Error creating performance report: {e}")
+        report['error'] = str(e)
+    
+    return report"""
+MF4Bridge Enhanced Utility Functions
+Optimized helper functions with improved performance and comprehensive error handling
+"""
+
+import os
+import sys
+import tempfile
+import shutil
+import glob
+import platform
+import threading
+import time
+import hashlib
+from pathlib import Path
+from typing import List, Union, Dict, Any, Optional, Tuple
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+logger = logging.getLogger(__name__)
+
+class ValidationError(Exception):
+    """Custom exception for validation errors"""
+    pass
+
+class PerformanceTimer:
+    """Context manager for timing operations"""
+    
+    def __init__(self, operation_name: str):
+        self.operation_name = operation_name
+        self.start_time = None
+        
+    def __enter__(self):
+        self.start_time = time.time()
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        duration = time.time() - self.start_time
+        logger.debug(f"Operation '{self.operation_name}' took {duration:.3f}s")
+
+class FileValidator:
+    """Enhanced file validation with caching"""
+    
+    def __init__(self):
+        self._validation_cache = {}
+        self._cache_lock = threading.Lock()
+        
+    def validate_file_extension(self, file_path: str, valid_extensions: List[str]) -> bool:
+        """
+        Validate if file has a valid extension with caching
+        
+        Args:
+            file_path: Path to the file
+            valid_extensions: List of valid extensions (e.g., ['.mf4', '.MF4'])
+            
+        Returns:
+            True if extension is valid, False otherwise
+        """
+        try:
+            # Use cache for repeated validations
+            cache_key = (file_path, tuple(sorted(ext.lower() for ext in valid_extensions)))
+            
+            with self._cache_lock:
+                if cache_key in self._validation_cache:
+                    return self._validation_cache[cache_key]
+            
+            file_ext = Path(file_path).suffix.lower()
+            valid_exts_lower = [ext.lower() for ext in valid_extensions]
+            result = file_ext in valid_exts_lower
+            
+            with self._cache_lock:
+                self._validation_cache[cache_key] = result
+                # Limit cache size
+                if len(self._validation_cache) > 1000:
+                    # Remove oldest entries
+                    keys_to_remove = list(self._validation_cache.keys())[:100]
+                    for key in keys_to_remove:
+                        del self._validation_cache[key]
+            
+            return result
+            
+        except Exception as e:
+            logger.warning(f"Error validating file extension for {file_path}: {e}")
+            return False
+    
+    def get_file_info(self, file_path: str) -> Dict[str, Any]:
+        """Get comprehensive file information"""
+        info = {
+            'exists': False,
+            'size': 0,
+            'size_formatted': '0 B',
+            'readable': False,
+            'writable': False,
+            'last_modified': None,
+            'extension': '',
+            'is_binary': False,
+            'hash_md5': None
+        }
+        
+        try:
+            if os.path.exists(file_path):
+                info['exists'] = True
+                info['readable'] = os.access(file_path, os.R_OK)
+                info['writable'] = os.access(file_path, os.W_OK)
+                
+                if os.path.isfile(file_path):
+                    stat_info = os.stat(file_path)
+                    info['size'] = stat_info.st_size
+                    info['size_formatted'] = format_file_size(info['size'])
+                    info['last_modified'] = stat_info.st_mtime
+                    info['extension'] = Path(file_path).suffix.lower()
+                    
+                    # Check if binary file (simple heuristic)
+                    if info['size'] > 0:
+                        try:
+                            with open(file_path, 'rb') as f:
+                                chunk = f.read(1024)
+                                info['is_binary'] = b'\x00' in chunk
+                        except Exception:
+                            info['is_binary'] = True
+                    
+                    # Calculate hash for small files
+                    if info['size'] < 10 * 1024 * 1024:  # Less than 10MB
+                        try:
+                            info['hash_md5'] = self._calculate_file_hash(file_path)
+                        except Exception:
+                            pass
+                            
+        except Exception as e:
+            logger.warning(f"Error getting file info for {file_path}: {e}")
+            
+        return info
+    
+    def _calculate_file_hash(self, file_path: str) -> str:
+        """Calculate MD5 hash of file"""
+        hash_md5 = hashlib.md5()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
+
+# Global file validator instance
+file_validator = FileValidator()
+
+def validate_file_extension(file_path: str, valid_extensions: List[str]) -> bool:
+    """Validate file extension using global validator"""
+    return file_validator.validate_file_extension(file_path, valid_extensions)
+
+def format_file
