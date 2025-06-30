@@ -7724,3 +7724,26 @@ NoneType: None
 2025-06-30 08:24:23,843 - converter_engine - INFO -   📄 Messages processed: 3000
 2025-06-30 08:24:52,510 - __main__ - INFO - MF4Bridge Enhanced shutdown complete
 2025-06-30 08:24:52,512 - __main__ - INFO - Cleanup completed successfully
+2025-06-30 08:28:53,765 - __main__ - INFO - ======================================================================
+2025-06-30 08:28:53,765 - __main__ - INFO - Starting MF4Bridge Enhanced
+2025-06-30 08:28:53,765 - __main__ - INFO - ======================================================================
+2025-06-30 08:28:53,770 - __main__ - INFO - ℹ Running in system Python environment
+2025-06-30 08:28:53,771 - __main__ - INFO - ✓ Platform: Darwin 24.5.0
+2025-06-30 08:28:53,988 - __main__ - INFO - ✓ Python 3.13.5 - compatible
+2025-06-30 08:28:54,247 - numexpr.utils - INFO - NumExpr defaulting to 12 threads.
+2025-06-30 08:28:54,640 - __main__ - INFO - ✓ asammdf 8.5.2 found
+2025-06-30 08:28:54,640 - __main__ - WARNING - ⚠️ NumPy 2.x detected (2.3.1) - may cause compatibility issues
+2025-06-30 08:28:54,641 - __main__ - INFO - Consider running: pip install 'numpy>=1.20.0,<2.0.0'
+2025-06-30 08:28:54,677 - __main__ - INFO - ✓ CustomTkinter 5.2.2 found - enhanced UI available
+2025-06-30 08:28:54,677 - __main__ - INFO - Application path: /Users/jayadevmeka/mf4bridge/MF4Bridge
+2025-06-30 08:28:54,677 - __main__ - INFO - Python executable: /usr/local/opt/python@3.13/bin/python3.13
+2025-06-30 08:28:54,677 - __main__ - INFO - Working directory: /Users/jayadevmeka/mf4bridge/MF4Bridge
+2025-06-30 08:28:54,750 - __main__ - INFO - ✓ Using CustomTkinter interface
+2025-06-30 08:28:54,778 - gui_components - INFO - Screen info: {'width': 1792, 'height': 1120, 'scaling': 0.750210970464135, 'is_small': False, 'is_large': False, 'effective_width': 2388, 'effective_height': 1492}
+2025-06-30 08:28:54,998 - converter_engine - INFO - MF4Converter initialized - asammdf available
+2025-06-30 08:28:54,998 - gui_components - INFO - Responsive GUI initialized with CustomTkinter
+2025-06-30 08:28:54,998 - __main__ - INFO - ✅ MF4Bridge Enhanced started successfully
+2025-06-30 08:28:54,998 - __main__ - INFO - GUI Framework: CustomTkinter
+2025-06-30 08:28:54,998 - __main__ - INFO - Mode: Full
+2025-06-30 08:28:58,892 - __main__ - INFO - MF4Bridge Enhanced shutdown complete
+2025-06-30 08:28:58,893 - __main__ - INFO - Cleanup completed successfully
