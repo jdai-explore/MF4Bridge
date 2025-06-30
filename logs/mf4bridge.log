@@ -1,0 +1,28 @@
+2025-06-30 08:12:33,179 - __main__ - INFO - ======================================================================
+2025-06-30 08:12:33,179 - __main__ - INFO - Starting MF4Bridge Enhanced
+2025-06-30 08:12:33,179 - __main__ - INFO - ======================================================================
+2025-06-30 08:12:33,197 - __main__ - INFO - ℹ Running in system Python environment
+2025-06-30 08:12:33,199 - __main__ - INFO - ✓ Platform: Darwin 24.5.0
+2025-06-30 08:12:33,493 - __main__ - INFO - ✓ Python 3.13.5 - compatible
+2025-06-30 08:12:34,113 - numexpr.utils - INFO - NumExpr defaulting to 12 threads.
+2025-06-30 08:12:34,984 - __main__ - INFO - ✓ asammdf 8.5.2 found
+2025-06-30 08:12:34,985 - __main__ - WARNING - ⚠️ NumPy 2.x detected (2.3.1) - may cause compatibility issues
+2025-06-30 08:12:34,985 - __main__ - INFO - Consider running: pip install 'numpy>=1.20.0,<2.0.0'
+2025-06-30 08:12:35,045 - __main__ - INFO - ✓ CustomTkinter 5.2.2 found - enhanced UI available
+2025-06-30 08:12:35,045 - __main__ - INFO - Application path: /Users/jayadevmeka/mf4bridge/MF4Bridge
+2025-06-30 08:12:35,045 - __main__ - INFO - Python executable: /usr/local/opt/python@3.13/bin/python3.13
+2025-06-30 08:12:35,045 - __main__ - INFO - Working directory: /Users/jayadevmeka/mf4bridge/MF4Bridge
+2025-06-30 08:12:35,080 - __main__ - ERROR - Failed to create GUI: invalid syntax (utils.py, line 1220)
+Traceback (most recent call last):
+  File "/Users/jayadevmeka/mf4bridge/MF4Bridge/main.py", line 130, in create_gui
+    from gui_components import MF4BridgeGUI
+  File "/Users/jayadevmeka/mf4bridge/MF4Bridge/gui_components.py", line 22, in <module>
+    from utils import (
+    ...<5 lines>...
+    )
+  File "/Users/jayadevmeka/mf4bridge/MF4Bridge/utils.py", line 1220
+    return report"""
+                 ^^^
+SyntaxError: invalid syntax
+2025-06-30 08:12:35,081 - __main__ - ERROR - GUI Creation Error: Failed to create application interface: invalid syntax (utils.py, line 1220)
+2025-06-30 08:12:44,332 - __main__ - INFO - MF4Bridge Enhanced shutdown complete

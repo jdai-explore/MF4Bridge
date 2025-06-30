@@ -1,6 +1,6 @@
 """
 MF4Bridge Converter Engine
-Enhanced core conversion functionality for MDF4 files with improved error handling
+Core conversion functionality for MDF4 files with improved error handling
 """
 
 import os
@@ -83,11 +83,15 @@ class MF4Converter:
                 return True
             
             # Full validation with asammdf
-            with MDF(file_path) as mdf:
-                version = getattr(mdf, 'version', '0.00')
-                is_valid = version >= '4.00'
-                logger.info(f"MDF version {version} - {'valid' if is_valid else 'invalid'}")
-                return is_valid
+            try:
+                with MDF(file_path) as mdf:
+                    version = getattr(mdf, 'version', '0.00')
+                    is_valid = version >= '4.00'
+                    logger.info(f"MDF version {version} - {'valid' if is_valid else 'invalid'}")
+                    return is_valid
+            except Exception as e:
+                logger.warning(f"MDF validation failed for {file_path}: {e}")
+                return False
                 
         except Exception as e:
             logger.error(f"Error validating MDF4 file {file_path}: {e}")
@@ -159,10 +163,13 @@ class MF4Converter:
         can_channels = []
         can_keywords = ['CAN', 'BUS', 'MESSAGE', 'FRAME', 'ID', 'DATA']
         
-        for channel in group.channels:
-            channel_name = channel.name.upper()
-            if any(keyword in channel_name for keyword in can_keywords):
-                can_channels.append(channel)
+        try:
+            for channel in group.channels:
+                channel_name = channel.name.upper()
+                if any(keyword in channel_name for keyword in can_keywords):
+                    can_channels.append(channel)
+        except Exception as e:
+            logger.debug(f"Error finding CAN channels: {e}")
                 
         return can_channels
     
@@ -191,7 +198,7 @@ class MF4Converter:
                     try:
                         # Create synthetic CAN message
                         can_id = 0x100 + (i % 0x600)
-                        data_bytes = [int(sample) & 0xFF]
+                        data_bytes = [int(sample) & 0xFF] if not np.isnan(sample) else [0]
                         
                         message = {
                             'timestamp': float(timestamp),
@@ -221,7 +228,7 @@ class MF4Converter:
                 can_id = 0x100 + (index % 0x600)  # Generate realistic ID
             else:
                 # Single value
-                data_bytes = [int(sample) & 0xFF]
+                data_bytes = [int(sample) & 0xFF] if not np.isnan(sample) else [0]
                 can_id = 0x100 + (index % 0x600)
             
             # Ensure we have valid data
@@ -254,20 +261,7 @@ class MF4Converter:
                         messages.extend(alt_messages)
                     except Exception:
                         continue
-            
-            # Method 2: Try to find vector/structured data
-            if not messages:
-                for group in mdf.groups:
-                    if hasattr(group, 'channel_group') and group.channel_group:
-                        # Look for structured CAN data
-                        try:
-                            # This is a simplified approach - real implementation would
-                            # need more sophisticated parsing based on the specific
-                            # MDF4 structure used by the logging device
-                            pass
-                        except Exception:
-                            continue
-                            
+                        
         except Exception as e:
             logger.debug(f"Alternative extraction failed: {e}")
             
